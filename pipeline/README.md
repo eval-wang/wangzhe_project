@@ -110,4 +110,4 @@ apply\document2\
 
 ## License
 
-待定（发布前请选择开源协议，见 CONTRIBUTING.md 说明）。
+本项目采用 [MIT License](LICENSE)。
