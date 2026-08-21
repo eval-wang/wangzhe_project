@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地图</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000000;
+        }
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .square {
+            width: 100vmin;
+            height: 100vmin;
+            background: #000000;
+            flex-shrink: 0;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            border-radius: 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="square">
+    <canvas id="mapCanvas" width="800" height="800"></canvas>
+</div>
+
+<script>
+    (function() {
+        const canvas = document.getElementById('mapCanvas');
+        const ctx = canvas.getContext('2d');
+        const square = document.querySelector('.square');
+
+        const GRID = 20;
+        let gridData = Array.from({ length: GRID }, () => Array(GRID).fill(''));
+        let imageLoaded = false;
+        let img = null;
+
+        // ---- 画布尺寸与页面始终为正方形（跟随视口较短边）----
+        function fitCanvas() {
+            const size = Math.round(square.clientWidth);
+            if (canvas.width !== size || canvas.height !== size) {
+                canvas.width = size;
+                canvas.height = size;
+            }
+            draw();
+        }
+        window.addEventListener('resize', fitCanvas);
+
+        // ---- 绘制 ----
+        function draw() {
+            const w = canvas.width;
+            const h = canvas.height;
+            const cellW = w / GRID;
+            const cellH = h / GRID;
+
+            // 清空
+            ctx.clearRect(0, 0, w, h);
+
+            // 绘制背景图片（若有）
+            if (img && imageLoaded) {
+                ctx.drawImage(img, 0, 0, w, h);
+            } else {
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, w, h);
+            }
+
+            // 绘制半透明网格线
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= GRID; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * cellW, 0);
+                ctx.lineTo(i * cellW, h);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, i * cellH);
+                ctx.lineTo(w, i * cellH);
+                ctx.stroke();
+            }
+
+            // 绘制棋子（W=白色，B=黑色）
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const val = gridData[r][c];
+                    if (!val) continue;
+                    const cx = c * cellW + cellW / 2;
+                    const cy = r * cellH + cellH / 2;
+                    const radius = Math.min(cellW, cellH) * 0.38;
+
+                    // 棋子主体
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                    ctx.shadowColor = 'rgba(0,0,0,0.7)';
+                    ctx.shadowBlur = 6;
+                    ctx.fillStyle = (val === 'W') ? '#f5f5f5' : '#111111';
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeStyle = (val === 'W') ? '#333333' : '#dddddd';
+                    ctx.stroke();
+
+                    // 高光
+                    ctx.beginPath();
+                    ctx.arc(cx - radius * 0.3, cy - radius * 0.3, radius * 0.25, 0, Math.PI * 2);
+                    ctx.fillStyle = (val === 'W') ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)';
+                    ctx.fill();
+                }
+            }
+        }
+
+        // ---- 工具函数：坐标转行列 ----
+        function getGridIndex(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mouseX = (e.clientX - rect.left) * scaleX;
+            const mouseY = (e.clientY - rect.top) * scaleY;
+            if (mouseX < 0 || mouseY < 0 || mouseX > canvas.width || mouseY > canvas.height) return null;
+            const col = Math.floor(mouseX / (canvas.width / GRID));
+            const row = Math.floor(mouseY / (canvas.height / GRID));
+            if (row < 0 || row >= GRID || col < 0 || col >= GRID) return null;
+            return { row, col };
+        }
+
+        // ---- 事件绑定（围棋式落子）----
+        // 左键：放置/移除白色棋子；右键：放置/移除黑色棋子
+        function toggleStone(e, color) {
+            if (!imageLoaded) return;
+            const idx = getGridIndex(e);
+            if (!idx) return;
+            const { row, col } = idx;
+            if (gridData[row][col] === color) {
+                gridData[row][col] = '';   // 再次点击相同颜色 → 移除
+            } else {
+                gridData[row][col] = color; // 否则放置该颜色棋子（覆盖另一种颜色）
+            }
+            draw();
+        }
+
+        function handleCanvasClick(e) {
+            toggleStone(e, 'W');
+        }
+
+        function handleCanvasRightClick(e) {
+            e.preventDefault();
+            toggleStone(e, 'B');
+        }
+
+        // ---- 固定背景图片 ----
+        // 自动加载固定背景图（D:\wangzhe_project\相关素材\地图\正方形.png），
+        // 依次尝试绝对路径与相对路径，提高兼容性。
+        const DEFAULT_BG = [
+            'file:///D:/wangzhe_project/相关素材/地图/正方形.png',
+            '../相关素材/地图/正方形.png'
+        ];
+
+        function loadBackground(src, onFail) {
+            const image = new Image();
+            image.onload = function() {
+                img = image;
+                imageLoaded = true;
+                draw();
+            };
+            image.onerror = function() {
+                if (onFail) onFail();
+            };
+            image.src = src;
+        }
+
+        let bgIndex = 0;
+        function tryLoadNextBg() {
+            if (bgIndex >= DEFAULT_BG.length) {
+                console.warn('固定背景图片加载失败。');
+                return;
+            }
+            loadBackground(DEFAULT_BG[bgIndex], function() {
+                bgIndex++;
+                tryLoadNextBg();
+            });
+        }
+        tryLoadNextBg();
+
+        // ---- 右键阻止上下文菜单 ----
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        // ---- 绑定鼠标事件 ----
+        canvas.addEventListener('click', handleCanvasClick);
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 2) { // 右键
+                handleCanvasRightClick(e);
+            }
+        });
+
+        // ---- 初始绘制（保持正方形）----
+        fitCanvas();
+    })();
+</script>
+
+</body>
+</html>
