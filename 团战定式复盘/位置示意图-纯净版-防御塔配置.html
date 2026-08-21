@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地图 · 防御塔配置</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000000;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+            color: #eee;
+        }
+        .board-wrap {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000000;
+        }
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        /* ===== 底部极简控制条 ===== */
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px 16px;
+            padding: 6px 10px;
+            background: #111111;
+            border-top: 1px solid #222;
+            font-size: 12px;
+        }
+        .side {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .side .tag {
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .side label {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            opacity: 0.85;
+        }
+        .side input[type="number"] {
+            width: 36px;
+            padding: 3px 2px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            background: #000000;
+            color: #eee;
+            border: 1px solid #3b3b52;
+            border-radius: 6px;
+            outline: none;
+        }
+        .side input[type="number"]:focus {
+            border-color: #4a6cf7;
+        }
+        .controls button {
+            background: #2f9e63;
+            border: none;
+            color: white;
+            padding: 5px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        .controls button:hover {
+            background: #35b872;
+        }
+        .controls .crystal-check {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            opacity: 0.75;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+
+<div class="board-wrap">
+    <canvas id="mapCanvas" width="800" height="800"></canvas>
+</div>
+
+<div class="controls">
+    <div class="side">
+        <span class="tag">⚪ 我方</span>
+        <label>上<input type="number" id="w-top" min="0" max="3" step="1" value="3"></label>
+        <label>中<input type="number" id="w-mid" min="0" max="3" step="1" value="3"></label>
+        <label>下<input type="number" id="w-bot" min="0" max="3" step="1" value="3"></label>
+    </div>
+    <div class="side">
+        <span class="tag">⚫ 敌方</span>
+        <label>上<input type="number" id="b-top" min="0" max="3" step="1" value="3"></label>
+        <label>中<input type="number" id="b-mid" min="0" max="3" step="1" value="3"></label>
+        <label>下<input type="number" id="b-bot" min="0" max="3" step="1" value="3"></label>
+    </div>
+    <button id="genTowersBtn">🏰 生成</button>
+    <label class="crystal-check"><input type="checkbox" id="showCrystal" checked> 水晶</label>
+</div>
+
+<script>
+    (function() {
+        const canvas = document.getElementById('mapCanvas');
+        const ctx = canvas.getContext('2d');
+        const wrap = document.querySelector('.board-wrap');
+
+        const GRID = 20;
+        let gridData = Array.from({ length: GRID }, () => Array(GRID).fill(''));
+        let imageLoaded = false;
+        let img = null;
+
+        // ===== 防御塔位置表（来源：棋盘防御塔网格图.csv）=====
+        // 每条分路按 一塔 → 二塔 → 三塔（由外向内）排列，坐标为 2×2 区块的左上角 (行,列)
+        const TOWER_POS = {
+            W: { // 我方（白棋）
+                top: [[4, 0], [10, 0], [14, 0]],
+                mid: [[11, 7], [13, 5], [15, 3]],
+                bot: [[18, 13], [18, 8], [18, 4]],
+                crystal: [17, 1]
+            },
+            B: { // 敌方（黑棋）
+                top: [[13, 18], [8, 18], [4, 18]],
+                mid: [[7, 11], [5, 13], [3, 15]],
+                bot: [[0, 4], [0, 10], [0, 14]],
+                crystal: [1, 17]
+            }
+        };
+
+        // ---- 画布始终为可用空间内的最大正方形 ----
+        function fitCanvas() {
+            const size = Math.max(50, Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight)));
+            if (canvas.width !== size || canvas.height !== size) {
+                canvas.width = size;
+                canvas.height = size;
+            }
+            draw();
+        }
+        window.addEventListener('resize', fitCanvas);
+
+        // ---- 绘制 ----
+        function draw() {
+            const w = canvas.width;
+            const h = canvas.height;
+            const cellW = w / GRID;
+            const cellH = h / GRID;
+
+            ctx.clearRect(0, 0, w, h);
+
+            if (img && imageLoaded) {
+                ctx.drawImage(img, 0, 0, w, h);
+            } else {
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, w, h);
+            }
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= GRID; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * cellW, 0);
+                ctx.lineTo(i * cellW, h);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, i * cellH);
+                ctx.lineTo(w, i * cellH);
+                ctx.stroke();
+            }
+
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    const val = gridData[r][c];
+                    if (!val) continue;
+                    const cx = c * cellW + cellW / 2;
+                    const cy = r * cellH + cellH / 2;
+                    const radius = Math.min(cellW, cellH) * 0.38;
+
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                    ctx.shadowColor = 'rgba(0,0,0,0.7)';
+                    ctx.shadowBlur = 6;
+                    ctx.fillStyle = (val === 'W') ? '#f5f5f5' : '#111111';
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeStyle = (val === 'W') ? '#333333' : '#dddddd';
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(cx - radius * 0.3, cy - radius * 0.3, radius * 0.25, 0, Math.PI * 2);
+                    ctx.fillStyle = (val === 'W') ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)';
+                    ctx.fill();
+                }
+            }
+        }
+
+        // ---- 工具函数：坐标转行列 ----
+        function getGridIndex(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mouseX = (e.clientX - rect.left) * scaleX;
+            const mouseY = (e.clientY - rect.top) * scaleY;
+            if (mouseX < 0 || mouseY < 0 || mouseX > canvas.width || mouseY > canvas.height) return null;
+            const col = Math.floor(mouseX / (canvas.width / GRID));
+            const row = Math.floor(mouseY / (canvas.height / GRID));
+            if (row < 0 || row >= GRID || col < 0 || col >= GRID) return null;
+            return { row, col };
+        }
+
+        // ---- 事件绑定（围棋式落子）----
+        function toggleStone(e, color) {
+            if (!imageLoaded) return;
+            const idx = getGridIndex(e);
+            if (!idx) return;
+            const { row, col } = idx;
+            if (gridData[row][col] === color) {
+                gridData[row][col] = '';
+            } else {
+                gridData[row][col] = color;
+            }
+            draw();
+        }
+
+        function handleCanvasClick(e) {
+            toggleStone(e, 'W');
+        }
+
+        function handleCanvasRightClick(e) {
+            e.preventDefault();
+            toggleStone(e, 'B');
+        }
+
+        // ---- 固定背景图片 ----
+        const DEFAULT_BG = [
+            'file:///D:/wangzhe_project/相关素材/地图/正方形.png',
+            '../相关素材/地图/正方形.png'
+        ];
+
+        function loadBackground(src, onFail) {
+            const image = new Image();
+            image.onload = function() {
+                img = image;
+                imageLoaded = true;
+                draw();
+            };
+            image.onerror = function() {
+                if (onFail) onFail();
+            };
+            image.src = src;
+        }
+
+        let bgIndex = 0;
+        function tryLoadNextBg() {
+            if (bgIndex >= DEFAULT_BG.length) {
+                console.warn('固定背景图片加载失败。');
+                return;
+            }
+            loadBackground(DEFAULT_BG[bgIndex], function() {
+                bgIndex++;
+                tryLoadNextBg();
+            });
+        }
+        tryLoadNextBg();
+
+        // ===== 一键生成防御塔 =====
+        function readLaneCount(id) {
+            const el = document.getElementById(id);
+            let n = parseInt(el.value, 10);
+            if (isNaN(n)) n = 3;
+            n = Math.max(0, Math.min(3, n));
+            el.value = n;
+            return n;
+        }
+
+        function placeBlock(color, topLeft) {
+            const [r, c] = topLeft;
+            for (let dr = 0; dr < 2; dr++) {
+                for (let dc = 0; dc < 2; dc++) {
+                    gridData[r + dr][c + dc] = color;
+                }
+            }
+        }
+
+        document.getElementById('genTowersBtn').addEventListener('click', function() {
+            const withCrystal = document.getElementById('showCrystal').checked;
+
+            const config = {
+                W: { top: readLaneCount('w-top'), mid: readLaneCount('w-mid'), bot: readLaneCount('w-bot') },
+                B: { top: readLaneCount('b-top'), mid: readLaneCount('b-mid'), bot: readLaneCount('b-bot') }
+            };
+
+            // 清空棋盘
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    gridData[r][c] = '';
+                }
+            }
+
+            for (const side of ['W', 'B']) {
+                for (const lane of ['top', 'mid', 'bot']) {
+                    // 游戏规则：由外向内逐步摧毁，剩余 n 座 = 最内侧 n 座保留
+                    const survivors = TOWER_POS[side][lane].slice(3 - config[side][lane]);
+                    survivors.forEach(pos => placeBlock(side, pos));
+                }
+                if (withCrystal) {
+                    placeBlock(side, TOWER_POS[side].crystal);
+                }
+            }
+
+            draw();
+        });
+
+        // ---- 右键阻止上下文菜单 ----
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        // ---- 绑定鼠标事件 ----
+        canvas.addEventListener('click', handleCanvasClick);
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 2) {
+                handleCanvasRightClick(e);
+            }
+        });
+
+        // ---- 初始绘制（保持正方形）----
+        fitCanvas();
+    })();
+</script>
+
+</body>
+</html>
