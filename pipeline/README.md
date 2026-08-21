@@ -86,7 +86,7 @@ apply\document2\
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境、版本锁定原因、调试指南 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 已知限制与路线图 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 分支工作流与贡献规范 |
-| [CHANGELOG.md](CHANGELOG.md) | 版本历史 |
+| [../项目思路/版本管理/CHANGELOG.md](../项目思路/版本管理/CHANGELOG.md) | 版本历史（按模块解耦） |
 | [pipeline串联_问答记录.md](pipeline串联_问答记录.md) | 需求对齐决策全过程 |
 
 ## 配套工具
