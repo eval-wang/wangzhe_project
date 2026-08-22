@@ -91,13 +91,12 @@
         .controls button:hover {
             background: #35b872;
         }
-        .controls .crystal-check {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            opacity: 0.75;
-            cursor: pointer;
-            white-space: nowrap;
+        .controls button.danger {
+            background: #c44a4a;
+            margin-left: auto;  /* 推到控制条最右侧 */
+        }
+        .controls button.danger:hover {
+            background: #d65a5a;
         }
     </style>
 </head>
@@ -109,19 +108,21 @@
 
 <div class="controls">
     <div class="side">
-        <span class="tag">⚪ 我方</span>
+        <span class="tag">我</span>
         <label>上<input type="number" id="w-top" min="0" max="3" step="1" value="3"></label>
         <label>中<input type="number" id="w-mid" min="0" max="3" step="1" value="3"></label>
         <label>下<input type="number" id="w-bot" min="0" max="3" step="1" value="3"></label>
     </div>
     <div class="side">
-        <span class="tag">⚫ 敌方</span>
+        <span class="tag">敌</span>
         <label>上<input type="number" id="b-top" min="0" max="3" step="1" value="3"></label>
         <label>中<input type="number" id="b-mid" min="0" max="3" step="1" value="3"></label>
         <label>下<input type="number" id="b-bot" min="0" max="3" step="1" value="3"></label>
     </div>
-    <button id="genTowersBtn">🏰 生成</button>
-    <label class="crystal-check"><input type="checkbox" id="showCrystal" checked> 水晶</label>
+    <div>
+        <button id="genTowersBtn">生成</button>
+        <button id="clearBtn" class="danger">清除</button>
+    </div>
 </div>
 
 <script>
@@ -308,19 +309,12 @@
         }
 
         document.getElementById('genTowersBtn').addEventListener('click', function() {
-            const withCrystal = document.getElementById('showCrystal').checked;
-
             const config = {
                 W: { top: readLaneCount('w-top'), mid: readLaneCount('w-mid'), bot: readLaneCount('w-bot') },
                 B: { top: readLaneCount('b-top'), mid: readLaneCount('b-mid'), bot: readLaneCount('b-bot') }
             };
 
-            // 清空棋盘
-            for (let r = 0; r < GRID; r++) {
-                for (let c = 0; c < GRID; c++) {
-                    gridData[r][c] = '';
-                }
-            }
+            clearBoard();
 
             for (const side of ['W', 'B']) {
                 for (const lane of ['top', 'mid', 'bot']) {
@@ -328,11 +322,24 @@
                     const survivors = TOWER_POS[side][lane].slice(3 - config[side][lane]);
                     survivors.forEach(pos => placeBlock(side, pos));
                 }
-                if (withCrystal) {
-                    placeBlock(side, TOWER_POS[side].crystal);
-                }
+                // 水晶默认始终生成
+                placeBlock(side, TOWER_POS[side].crystal);
             }
 
+            draw();
+        });
+
+        // ===== 一键清除 =====
+        function clearBoard() {
+            for (let r = 0; r < GRID; r++) {
+                for (let c = 0; c < GRID; c++) {
+                    gridData[r][c] = '';
+                }
+            }
+        }
+
+        document.getElementById('clearBtn').addEventListener('click', function() {
+            clearBoard();
             draw();
         });
 
