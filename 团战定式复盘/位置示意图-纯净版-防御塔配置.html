@@ -153,6 +153,16 @@
             }
         };
 
+        // ---- 棋盘布局：四周留白用于坐标标注（参考围棋棋盘）----
+        // 上下两侧标字母 A–T（列），左右两侧标数字 1–20（行）
+        const COL_LETTERS = 'ABCDEFGHIJKLMNOPQRST'; // 20 列
+        function layout() {
+            const size = canvas.width;
+            const M = Math.max(16, Math.round(size * 0.04)); // 标注带宽度，随棋盘缩放
+            const board = size - 2 * M;
+            return { size, M, board, cell: board / GRID };
+        }
+
         // ---- 画布始终为可用空间内的最大正方形 ----
         function fitCanvas() {
             const size = Math.max(50, Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight)));
@@ -166,40 +176,59 @@
 
         // ---- 绘制 ----
         function draw() {
-            const w = canvas.width;
-            const h = canvas.height;
-            const cellW = w / GRID;
-            const cellH = h / GRID;
+            const { size, M, board, cell } = layout();
+            const w = size;
+            const h = size;
 
             ctx.clearRect(0, 0, w, h);
 
+            // 整体黑色底（含标注带）
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, w, h);
+
+            // 棋盘区域背景图（标注带保持纯黑，确保文字可辨认）
             if (img && imageLoaded) {
-                ctx.drawImage(img, 0, 0, w, h);
-            } else {
-                ctx.fillStyle = '#000000';
-                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, M, M, board, board);
             }
 
+            // 绘制半透明网格线（仅棋盘区域）
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
             ctx.lineWidth = 1;
             for (let i = 0; i <= GRID; i++) {
                 ctx.beginPath();
-                ctx.moveTo(i * cellW, 0);
-                ctx.lineTo(i * cellW, h);
+                ctx.moveTo(M + i * cell, M);
+                ctx.lineTo(M + i * cell, M + board);
                 ctx.stroke();
                 ctx.beginPath();
-                ctx.moveTo(0, i * cellH);
-                ctx.lineTo(w, i * cellH);
+                ctx.moveTo(M, M + i * cell);
+                ctx.lineTo(M + board, M + i * cell);
                 ctx.stroke();
+            }
+
+            // ---- 坐标标注：上下字母 A–T，左右数字 1–20 ----
+            const fontSize = Math.max(10, Math.round(cell * 0.55));
+            ctx.font = `600 ${fontSize}px 'Segoe UI', Roboto, system-ui, sans-serif`;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i < GRID; i++) {
+                const cx = M + i * cell + cell / 2;   // 列中心 x
+                const cy = M + i * cell + cell / 2;   // 行中心 y
+                // 上下：字母
+                ctx.fillText(COL_LETTERS[i], cx, M / 2);
+                ctx.fillText(COL_LETTERS[i], cx, size - M / 2);
+                // 左右：数字
+                ctx.fillText(String(i + 1), M / 2, cy);
+                ctx.fillText(String(i + 1), size - M / 2, cy);
             }
 
             for (let r = 0; r < GRID; r++) {
                 for (let c = 0; c < GRID; c++) {
                     const val = gridData[r][c];
                     if (!val) continue;
-                    const cx = c * cellW + cellW / 2;
-                    const cy = r * cellH + cellH / 2;
-                    const radius = Math.min(cellW, cellH) * 0.38;
+                    const cx = M + c * cell + cell / 2;
+                    const cy = M + r * cell + cell / 2;
+                    const radius = cell * 0.38;
 
                     ctx.beginPath();
                     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -228,8 +257,9 @@
             const mouseX = (e.clientX - rect.left) * scaleX;
             const mouseY = (e.clientY - rect.top) * scaleY;
             if (mouseX < 0 || mouseY < 0 || mouseX > canvas.width || mouseY > canvas.height) return null;
-            const col = Math.floor(mouseX / (canvas.width / GRID));
-            const row = Math.floor(mouseY / (canvas.height / GRID));
+            const { M, cell } = layout();
+            const col = Math.floor((mouseX - M) / cell);
+            const row = Math.floor((mouseY - M) / cell);
             if (row < 0 || row >= GRID || col < 0 || col >= GRID) return null;
             return { row, col };
         }
