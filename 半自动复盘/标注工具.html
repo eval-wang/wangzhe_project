@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>半自动复盘 · 手工标注</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000000;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+            color: #eee;
+        }
+        /* ===== 顶部时间栏 ===== */
+        .topbar {
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 18px;
+            padding: 8px 10px 6px;
+            background: #111111;
+            border-bottom: 1px solid #222;
+        }
+        .clock {
+            font-size: 40px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 2px;
+            color: #ffd76a;
+            line-height: 1;
+        }
+        .meta {
+            font-size: 13px;
+            opacity: 0.85;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .meta .review {
+            color: #ff9d5c;
+            font-weight: 600;
+            display: none;
+        }
+        .board-wrap {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000000;
+        }
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        /* ===== 底部控制条 ===== */
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 8px 14px;
+            padding: 6px 10px;
+            background: #111111;
+            border-top: 1px solid #222;
+            font-size: 12px;
+        }
+        .controls button {
+            background: #2f9e63;
+            border: none;
+            color: white;
+            padding: 5px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        .controls button:hover { background: #35b872; }
+        .controls button.warn { background: #b8860b; }
+        .controls button.warn:hover { background: #d39e10; }
+        .controls button.primary { background: #4a6cf7; }
+        .controls button.primary:hover { background: #5d7ef8; }
+        .hint {
+            opacity: 0.6;
+            font-size: 12px;
+        }
+        .trail {
+            width: 100%;
+            text-align: center;
+            font-size: 12px;
+            opacity: 0.75;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .trail b { color: #ffd76a; font-weight: 600; }
+    </style>
+</head>
+<body>
+
+<div class="topbar">
+    <span class="clock" id="clock">00:30</span>
+    <div class="meta">
+        <span id="sampleInfo">采样点 #1</span>
+        <span id="hoverInfo">悬停：—</span>
+        <span class="review" id="reviewTag">回看模式 · 点击可覆盖该点</span>
+    </div>
+</div>
+
+<div class="board-wrap">
+    <canvas id="mapCanvas" width="800" height="800"></canvas>
+</div>
+
+<div class="controls">
+    <button id="undoBtn" class="warn">撤回 ⌫</button>
+    <button id="skipBtn">跳过 EM ⏎</button>
+    <button id="saveBtn" class="primary">另存为 xlsx</button>
+    <span class="hint">← → 移动 · 点击落子 · Enter 跳过 · Backspace 撤回</span>
+    <div class="trail" id="trail"></div>
+</div>
+
+<script src="xlsx.full.min.js"></script>
+<script>
+    // ===== 符号映射表（来源：王者视频解析\子项目3_数据定位\小地图位置.md，构建时注入）=====
+    const SYMBOL_MAP = {"0,4":"A1","0,5":"A1","0,6":"A1","0,9":"A2","0,10":"A2","0,11":"A2","0,14":"A3","0,15":"A3","1,1":"a0","1,2":"a0","1,4":"A1","1,5":"A1","1,6":"A1","1,9":"A2","1,10":"A2","1,11":"A2","1,14":"A3","1,15":"A3","1,17":"M4","1,18":"M4","2,1":"a0","2,2":"a0","2,6":"R3","2,7":"R3","2,17":"M4","2,18":"M4","3,6":"R3","3,9":"R0","3,10":"R0","3,11":"R1","3,12":"R1","3,15":"M3","3,16":"M3","4,0":"a1","4,1":"a1","4,9":"R0","4,10":"R0","4,11":"R1","4,12":"R1","4,15":"M3","4,16":"M3","4,18":"T3","4,19":"T3","5,0":"a1","5,1":"a1","5,2":"b3","5,3":"b3","5,5":"L","5,6":"L","5,10":"R2","5,13":"M2","5,14":"M2","5,18":"T3","5,19":"T3","6,0":"a1","6,1":"a1","6,2":"b3","6,3":"b3","6,5":"L","6,6":"L","6,9":"R2","6,10":"R2","6,13":"M2","6,14":"M2","7,2":"b2","7,3":"b2","7,6":"L","7,11":"M1","7,12":"M1","7,15":"B1","7,16":"B1","7,18":"T2","7,19":"T2","8,2":"b2","8,3":"b2","8,11":"M1","8,12":"M1","8,15":"B1","8,16":"B1","8,18":"T2","8,19":"T2","9,2":"b2","9,3":"b2","9,4":"b0","9,5":"b0","9,9":"m0","9,10":"m0","9,14":"B0","9,15":"B0","9,18":"T2","9,19":"T2","10,0":"a2","10,1":"a2","10,4":"b0","10,5":"b0","10,9":"m0","10,10":"m0","10,14":"B0","10,15":"B0","10,16":"B2","10,17":"B2","11,0":"a2","11,1":"a2","11,3":"b1","11,4":"b1","11,7":"m1","11,8":"m1","11,16":"B2","11,17":"B2","12,0":"a2","12,1":"a2","12,3":"b1","12,4":"b1","12,7":"m1","12,8":"m1","12,13":"l","12,16":"B2","12,17":"B2","13,5":"m2","13,6":"m2","13,9":"r2","13,10":"r2","13,13":"l","13,14":"l","13,16":"B3","13,17":"B3","13,18":"T1","13,19":"T1","14,0":"a3","14,1":"a3","14,5":"m2","14,6":"m2","14,9":"r2","14,13":"l","14,14":"l","14,16":"B3","14,17":"B3","14,18":"T1","14,19":"T1","15,0":"a3","15,1":"a3","15,3":"m3","15,4":"m3","15,7":"r1","15,8":"r1","15,9":"r0","15,10":"r0","15,18":"T1","15,19":"T1","16,3":"m3","16,4":"m3","16,7":"r1","16,8":"r1","16,9":"r0","16,10":"r0","16,13":"r3","17,1":"m4","17,2":"m4","17,12":"r3","17,13":"r3","17,17":"t0","17,18":"t0","18,1":"m4","18,2":"m4","18,4":"t3","18,5":"t3","18,8":"t2","18,9":"t2","18,10":"t2","18,13":"t1","18,14":"t1","18,15":"t1","18,17":"t0","18,18":"t0","19,4":"t3","19,5":"t3","19,8":"t2","19,9":"t2","19,10":"t2","19,13":"t1","19,14":"t1","19,15":"t1"};
+
+    (function() {
+        const canvas = document.getElementById('mapCanvas');
+        const ctx = canvas.getContext('2d');
+        const wrap = document.querySelector('.board-wrap');
+        const clockEl = document.getElementById('clock');
+        const sampleInfoEl = document.getElementById('sampleInfo');
+        const hoverInfoEl = document.getElementById('hoverInfo');
+        const reviewTagEl = document.getElementById('reviewTag');
+        const trailEl = document.getElementById('trail');
+
+        // ===== 采样参数 =====
+        const GRID = 20;
+        const START_S = 30;    // 采样起点 00:30
+        const STEP_S = 3;      // 每 3 秒一次
+        // ===== 表格参数（基准提前后的基础表格）=====
+        const TBL_START_S = 30;  // 表格基准 00:30
+        const CELL_SPAN_S = 15;  // 每格 15 秒
+        const ROWS_PER_COL = 6;  // 每列 6 行（90 秒）
+        const N_COLS = 17;       // 17 列
+        const SEP = '_';
+
+        // samples[i] = {row, col, sym} | 'EM'（跳过）—— 第 i 个采样点对应时刻 START_S + i*STEP_S
+        let samples = [];
+        let cursor = 0;        // 当前待标注 / 回看的采样点下标
+        let imageLoaded = false;
+        let img = null;
+
+        const COL_LETTERS = 'ABCDEFGHIJKLMNOPQRST'; // 20 列
+
+        function layout() {
+            const size = canvas.width;
+            const M = Math.max(16, Math.round(size * 0.04));
+            const board = size - 2 * M;
+            return { size, M, board, cell: board / GRID };
+        }
+
+        function fitCanvas() {
+            const size = Math.max(50, Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight)));
+            if (canvas.width !== size || canvas.height !== size) {
+                canvas.width = size;
+                canvas.height = size;
+            }
+            draw();
+        }
+        window.addEventListener('resize', fitCanvas);
+
+        // ---- 时间格式化 mm:ss ----
+        function fmt(s) {
+            const m = Math.floor(s / 60), ss = s % 60;
+            return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+        }
+        // 表格用 m:ss（与基础表格表头一致）
+        function fmtShort(s) {
+            return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+        }
+
+        function cellLabel(row, col) {
+            return COL_LETTERS[col] + (row + 1);
+        }
+
+        // ---- 绘制 ----
+        function draw() {
+            const { size, M, board, cell } = layout();
+            ctx.clearRect(0, 0, size, size);
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, size, size);
+
+            if (img && imageLoaded) {
+                ctx.drawImage(img, M, M, board, board);
+            }
+
+            // 半透明网格
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= GRID; i++) {
+                ctx.beginPath();
+                ctx.moveTo(M + i * cell, M);
+                ctx.lineTo(M + i * cell, M + board);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(M, M + i * cell);
+                ctx.lineTo(M + board, M + i * cell);
+                ctx.stroke();
+            }
+
+            // 坐标标注：上下 A–T，左右 1–20
+            const fontSize = Math.max(10, Math.round(cell * 0.55));
+            ctx.font = `600 ${fontSize}px 'Segoe UI', Roboto, system-ui, sans-serif`;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i < GRID; i++) {
+                const c = M + i * cell + cell / 2;
+                ctx.fillText(COL_LETTERS[i], c, M / 2);
+                ctx.fillText(COL_LETTERS[i], c, size - M / 2);
+                ctx.fillText(String(i + 1), M / 2, c);
+                ctx.fillText(String(i + 1), size - M / 2, c);
+            }
+
+            // 当前采样点的棋子（回看时显示该点记录）
+            const cur = samples[cursor];
+            if (cur && cur !== 'EM') {
+                const cx = M + cur.col * cell + cell / 2;
+                const cy = M + cur.row * cell + cell / 2;
+                const radius = cell * 0.38;
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                ctx.shadowColor = 'rgba(0,0,0,0.7)';
+                ctx.shadowBlur = 6;
+                ctx.fillStyle = '#f5f5f5';
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = '#333333';
+                ctx.stroke();
+                // 符号标注在棋子旁
+                ctx.font = `700 ${Math.max(10, Math.round(cell * 0.5))}px 'Segoe UI', sans-serif`;
+                ctx.fillStyle = '#ffd76a';
+                ctx.textAlign = 'left';
+                ctx.fillText(cur.sym || 'UN', cx + radius + 3, cy);
+                ctx.textAlign = 'center';
+            }
+        }
+
+        // ---- 状态栏刷新 ----
+        function refreshUI() {
+            clockEl.textContent = fmt(START_S + cursor * STEP_S);
+            sampleInfoEl.textContent = '采样点 #' + (cursor + 1) + ' · 已记录 ' + samples.length + ' 条';
+            const reviewing = cursor < samples.length;
+            reviewTagEl.style.display = reviewing ? 'inline' : 'none';
+            // 最近记录尾部
+            const tail = samples.slice(Math.max(0, samples.length - 8));
+            const startIdx = samples.length - tail.length;
+            trailEl.innerHTML = tail.map((s, k) => {
+                const t = fmtShort(START_S + (startIdx + k) * STEP_S);
+                const v = (s === 'EM') ? 'EM' : (cellLabel(s.row, s.col) + ' ' + (s.sym || 'UN'));
+                return (startIdx + k === cursor) ? '<b>[' + t + ' ' + v + ']</b>' : t + ' ' + v;
+            }).join(' · ');
+        }
+
+        // ---- 坐标换算 ----
+        function getGridIndex(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mouseX = (e.clientX - rect.left) * scaleX;
+            const mouseY = (e.clientY - rect.top) * scaleY;
+            if (mouseX < 0 || mouseY < 0 || mouseX > canvas.width || mouseY > canvas.height) return null;
+            const { M, cell } = layout();
+            const col = Math.floor((mouseX - M) / cell);
+            const row = Math.floor((mouseY - M) / cell);
+            if (row < 0 || row >= GRID || col < 0 || col >= GRID) return null;
+            return { row, col };
+        }
+
+        // ---- 标注动作 ----
+        function record(value) {
+            samples[cursor] = value;  // 新点 push，回看时覆盖
+            if (cursor === samples.length - 1 || cursor === samples.length) {
+                // 保持数组长度与 cursor 同步（cursor === samples.length 时上一步已 push）
+            }
+            cursor++;
+            draw();
+            refreshUI();
+        }
+
+        function handleClick(e) {
+            if (!imageLoaded) return;
+            const idx = getGridIndex(e);
+            if (!idx) return;
+            const sym = SYMBOL_MAP[idx.row + ',' + idx.col] || '';
+            record({ row: idx.row, col: idx.col, sym });
+        }
+
+        function handleSkip() {  // Enter：英雄死亡等无法标注
+            record('EM');
+        }
+
+        function handleUndo() {  // 撤回
+            if (samples.length === 0) return;
+            if (cursor >= samples.length) {
+                samples.pop();
+                cursor = samples.length;
+            } else {
+                samples.splice(cursor, 1);  // 删除当前回看点，后续采样时间随下标前移
+            }
+            draw();
+            refreshUI();
+        }
+
+        function handleNav(dir) {  // ← →
+            cursor = Math.max(0, Math.min(samples.length, cursor + dir));
+            draw();
+            refreshUI();
+        }
+
+        // ---- 导出 xlsx（基础表格_填充结果，基准 00:30）----
+        function exportXlsx() {
+            // 表头：行1 列标题（0:30 起每 90 秒一列），列A 行标题（0:15 起每 15 秒一行）
+            const aoa = [[]];
+            aoa[0].push('');
+            for (let i = 0; i < N_COLS; i++) aoa[0].push(fmtShort(TBL_START_S + i * CELL_SPAN_S * ROWS_PER_COL));
+            for (let j = 0; j < ROWS_PER_COL; j++) {
+                const r = [fmtShort(CELL_SPAN_S * (j + 1))];
+                for (let i = 0; i < N_COLS; i++) r.push('');
+                aoa.push(r);
+            }
+
+            const grid = {};
+            let dropped = 0;
+            samples.forEach((s, i) => {
+                const t = START_S + i * STEP_S;
+                const offset = t - TBL_START_S;
+                if (offset < 0) return;
+                const colIdx = Math.floor(offset / (CELL_SPAN_S * ROWS_PER_COL));
+                const rowIdx = Math.floor((offset % (CELL_SPAN_S * ROWS_PER_COL)) / CELL_SPAN_S);
+                if (colIdx >= N_COLS || rowIdx >= ROWS_PER_COL) { dropped++; return; }
+                const ev = (s === 'EM') ? 'EM' : (s.sym || 'UN');
+                const key = colIdx + ',' + rowIdx;
+                (grid[key] = grid[key] || []).push(ev);
+            });
+
+            for (const key in grid) {
+                const [c, r] = key.split(',').map(Number);
+                aoa[1 + r][1 + c] = grid[key].join(SEP);
+            }
+
+            const ws = XLSX.utils.aoa_to_sheet(aoa);
+            ws['!cols'] = [{ wch: 6 }].concat(Array(N_COLS).fill({ wch: 18 }));
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+            const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const fname = '基础表格_填充结果.xlsx';
+
+            const done = () => {
+                alert('导出完成：填充 ' + Object.keys(grid).length + ' 格' +
+                      (dropped ? '，超出表格范围丢弃 ' + dropped + ' 点' : ''));
+            };
+
+            const anchorDownload = () => {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = fname;
+                a.click();
+                URL.revokeObjectURL(a.href);
+                done();
+            };
+
+            if (window.showSaveFilePicker) {
+                window.showSaveFilePicker({
+                    suggestedName: fname,
+                    types: [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
+                }).then(h => h.createWritable()).then(w => w.write(blob).then(() => w.close())).then(done)
+                  .catch(err => {
+                      if (err && err.name === 'AbortError') return;  // 用户取消
+                      console.warn('showSaveFilePicker 失败，回退普通下载：', err);
+                      anchorDownload();
+                  });
+            } else {
+                anchorDownload();
+            }
+        }
+
+        // ---- 背景图 ----
+        const DEFAULT_BG = [
+            'file:///D:/wangzhe_project/相关素材/地图/正方形.png',
+            '../相关素材/地图/正方形.png'
+        ];
+        function loadBackground(src, onFail) {
+            const image = new Image();
+            image.onload = function() { img = image; imageLoaded = true; draw(); };
+            image.onerror = function() { if (onFail) onFail(); };
+            image.src = src;
+        }
+        let bgIndex = 0;
+        function tryLoadNextBg() {
+            if (bgIndex >= DEFAULT_BG.length) {
+                console.warn('背景图加载失败，使用纯黑底。');
+                imageLoaded = true;  // 无图也允许标注
+                draw();
+                return;
+            }
+            loadBackground(DEFAULT_BG[bgIndex], function() { bgIndex++; tryLoadNextBg(); });
+        }
+        tryLoadNextBg();
+
+        // ---- 事件绑定 ----
+        canvas.addEventListener('click', handleClick);
+        canvas.addEventListener('contextmenu', e => e.preventDefault());
+        canvas.addEventListener('mousemove', e => {
+            const idx = getGridIndex(e);
+            hoverInfoEl.textContent = idx ? ('悬停：' + cellLabel(idx.row, idx.col)) : '悬停：—';
+        });
+
+        document.getElementById('undoBtn').addEventListener('click', handleUndo);
+        document.getElementById('skipBtn').addEventListener('click', handleSkip);
+        document.getElementById('saveBtn').addEventListener('click', exportXlsx);
+
+        window.addEventListener('keydown', e => {
+            if (e.key === 'ArrowLeft') { e.preventDefault(); handleNav(-1); }
+            else if (e.key === 'ArrowRight') { e.preventDefault(); handleNav(1); }
+            else if (e.key === 'Enter') { e.preventDefault(); handleSkip(); }
+            else if (e.key === 'Backspace') { e.preventDefault(); handleUndo(); }
+        });
+
+        // ---- 初始化 ----
+        fitCanvas();
+        refreshUI();
+    })();
+</script>
+
+</body>
+</html>
